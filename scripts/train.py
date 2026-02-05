@@ -27,11 +27,22 @@ def parse_args():
     return parser.parse_args()
 
 
+def _collate_skip_none(batch):
+    batch = [b for b in batch if b is not None]
+    if not batch:
+        return None
+    inputs, targets = zip(*batch)
+    return torch.stack(inputs, dim=0), torch.tensor(targets)
+
+
 def train_one_epoch(model, loader, criterion, optimizer, device, log_interval):
     model.train()
     running_loss = 0.0
     running_acc = 0.0
-    for step, (inputs, targets) in enumerate(tqdm(loader, desc="train", leave=False)):
+    for step, batch in enumerate(tqdm(loader, desc="train", leave=False)):
+        if batch is None:
+            continue
+        inputs, targets = batch
         inputs = inputs.to(device)
         targets = targets.to(device)
 
@@ -57,7 +68,10 @@ def evaluate(model, loader, criterion, device):
     running_loss = 0.0
     running_acc = 0.0
     with torch.no_grad():
-        for inputs, targets in tqdm(loader, desc="eval", leave=False):
+        for batch in tqdm(loader, desc="eval", leave=False):
+            if batch is None:
+                continue
+            inputs, targets = batch
             inputs = inputs.to(device)
             targets = targets.to(device)
 
@@ -98,6 +112,7 @@ def main():
         shuffle=True,
         num_workers=cfg["data"]["num_workers"],
         pin_memory=pin_memory,
+        collate_fn=_collate_skip_none,
     )
 
     test_loader = DataLoader(
@@ -106,11 +121,20 @@ def main():
         shuffle=False,
         num_workers=cfg["data"]["num_workers"],
         pin_memory=pin_memory,
+        collate_fn=_collate_skip_none,
     )
 
     model = build_model(cfg["model"]).to(device)
 
-    criterion = torch.nn.CrossEntropyLoss()
+    class_weights = None
+    if hasattr(train_ds, "samples") and hasattr(train_ds, "class_to_idx"):
+        counts = [0] * len(train_ds.class_to_idx)
+        for _, label in train_ds.samples:
+            counts[label] += 1
+        weights = [0.0 if c == 0 else 1.0 / c for c in counts]
+        class_weights = torch.tensor(weights, device=device)
+
+    criterion = torch.nn.CrossEntropyLoss(weight=class_weights)
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=cfg["train"]["lr"], weight_decay=cfg["train"]["weight_decay"]
     )

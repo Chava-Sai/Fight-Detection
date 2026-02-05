@@ -2,6 +2,7 @@ import os
 from typing import List, Tuple
 
 from torch.utils.data import Dataset
+import random
 
 from .transforms import apply_video_transforms
 from .video import VIDEO_EXTS, read_video_frames
@@ -49,8 +50,15 @@ class RWF2000Dataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, index: int):
-        path, label = self.samples[index]
-        frames = read_video_frames(path, self.num_frames, train=self.split == "train")
+        for _ in range(3):
+            path, label = self.samples[index]
+            try:
+                frames = read_video_frames(path, self.num_frames, train=self.split == "train")
+                break
+            except Exception:
+                index = random.randint(0, len(self.samples) - 1)
+        else:
+            return None
         frames = apply_video_transforms(
             frames,
             train=self.split == "train",

@@ -38,27 +38,33 @@ def _sample_indices(num_total: int, num_frames: int, train: bool) -> List[int]:
 
 def read_video_frames(path: str, num_frames: int, train: bool) -> torch.Tensor:
     if HAS_DECORD:
-        vr = decord.VideoReader(path)
-        idx = _sample_indices(len(vr), num_frames, train)
-        frames = vr.get_batch(idx)
-        return frames
+        try:
+            vr = decord.VideoReader(path)
+            idx = _sample_indices(len(vr), num_frames, train)
+            frames = vr.get_batch(idx)
+            return frames
+        except Exception as exc:
+            raise RuntimeError(f"Failed to read video with decord: {path}") from exc
 
     if not HAS_CV2:
         raise RuntimeError("Neither decord nor opencv-python is available for video loading.")
 
     cap = cv2.VideoCapture(path)
+    if not cap.isOpened():
+        raise RuntimeError(f"Failed to open video: {path}")
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     idx = _sample_indices(total, num_frames, train)
     frames = []
+    got_any = False
     for i in idx:
         cap.set(cv2.CAP_PROP_POS_FRAMES, i)
         ok, frame = cap.read()
         if not ok:
-            if frames:
-                frame = frames[-1]
-            else:
-                frame = np.zeros((224, 224, 3), dtype=np.uint8)
+            continue
+        got_any = True
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frames.append(frame)
     cap.release()
+    if not got_any or not frames:
+        raise RuntimeError(f"Failed to read frames from video: {path}")
     return torch.from_numpy(np.stack(frames, axis=0))

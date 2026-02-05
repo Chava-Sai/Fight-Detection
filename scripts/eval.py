@@ -25,11 +25,22 @@ def parse_args():
     return parser.parse_args()
 
 
+def _collate_skip_none(batch):
+    batch = [b for b in batch if b is not None]
+    if not batch:
+        return None
+    inputs, targets = zip(*batch)
+    return torch.stack(inputs, dim=0), torch.tensor(targets)
+
+
 def evaluate(model, loader, device):
     model.eval()
     running_acc = 0.0
     with torch.no_grad():
-        for inputs, targets in tqdm(loader, desc="eval", leave=False):
+        for batch in tqdm(loader, desc="eval", leave=False):
+            if batch is None:
+                continue
+            inputs, targets = batch
             inputs = inputs.to(device)
             targets = targets.to(device)
             logits = model(inputs)
@@ -57,6 +68,7 @@ def main():
         shuffle=False,
         num_workers=cfg["data"]["num_workers"],
         pin_memory=pin_memory,
+        collate_fn=_collate_skip_none,
     )
 
     model = build_model(cfg["model"]).to(device)
